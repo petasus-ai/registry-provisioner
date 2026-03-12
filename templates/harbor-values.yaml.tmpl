@@ -1,0 +1,8 @@
+expose:
+  type: clusterIP
+  tls:
+    enabled: false
+
+externalURL: https://{{DOMAIN}}
+existingSecretAdminPasswordKey: HARBOR_ADMIN_PASSWORD
+harborAdminPassword: "{{HARBOR_ADMIN_PASSWORD}}"

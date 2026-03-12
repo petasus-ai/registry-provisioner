@@ -1,0 +1,85 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: harbor-ca-cert
+  namespace: kube-system
+data:
+  ca.crt: |
+{{CA_CRT_INDENTED}}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: registry-configurator
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      name: registry-configurator
+  template:
+    metadata:
+      labels:
+        name: registry-configurator
+    spec:
+      hostNetwork: true
+      hostPID: true
+      tolerations:
+      - operator: Exists
+        effect: NoSchedule
+      - operator: Exists
+        effect: NoExecute
+      containers:
+      - name: configurator
+        image: alpine:latest
+        securityContext:
+          privileged: true
+        env:
+        - name: GATEWAY_IP
+          value: "{{GATEWAY_IP}}"
+        - name: DOMAIN
+          value: "{{DOMAIN}}"
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            # 1. Manage /etc/hosts mapping
+            if ! grep -q "$DOMAIN" /etc/hosts; then
+              echo "Adding $DOMAIN to /etc/hosts"
+              echo "$GATEWAY_IP $DOMAIN" >> /etc/hosts
+            else
+              echo "Updating $DOMAIN in /etc/hosts"
+              sed -i "s/.*$DOMAIN/$GATEWAY_IP $DOMAIN/" /etc/hosts
+            fi
+            
+            # 2. Configure containerd certificates
+            CERT_DIR="/etc/containerd/certs.d/$DOMAIN"
+            mkdir -p $CERT_DIR
+            cp /tmp/ca.crt $CERT_DIR/ca.crt
+            
+            # 3. Write hosts.toml
+            cat <<EOT > $CERT_DIR/hosts.toml
+            server = "https://$DOMAIN"
+            [host."https://$DOMAIN"]
+              capabilities = ["pull", "resolve", "push"]
+              ca = ["$CERT_DIR/ca.crt"]
+            EOT
+            
+            echo "Configuration complete. Sleeping to keep DaemonSet running..."
+            sleep infinity
+        volumeMounts:
+        - name: ca-cert-volume
+          mountPath: /tmp/ca.crt
+          subPath: ca.crt
+        - name: etc-hosts
+          mountPath: /etc/hosts
+        - name: containerd-certs
+          mountPath: /etc/containerd/certs.d
+      volumes:
+      - name: ca-cert-volume
+        configMap:
+          name: harbor-ca-cert
+      - name: etc-hosts
+        hostPath:
+          path: /etc/hosts
+      - name: containerd-certs
+        hostPath:
+          path: /etc/containerd/certs.d

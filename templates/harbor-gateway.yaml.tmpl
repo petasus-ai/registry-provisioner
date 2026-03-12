@@ -1,0 +1,45 @@
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: harbor-gateway
+  namespace: {{NAMESPACE}}
+spec:
+  gatewayClassName: {{GATEWAY_CLASS}}
+  listeners:
+  - name: https
+    hostname: {{DOMAIN}}
+    port: 443
+    protocol: HTTPS
+    tls:
+      mode: Terminate
+      certificateRefs:
+      - name: harbor-tls-secret
+        kind: Secret
+
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: harbor-route
+  namespace: {{NAMESPACE}}
+spec:
+  parentRefs:
+  - name: harbor-gateway
+  hostnames:
+  - "{{DOMAIN}}"
+  rules:
+  - matches:
+    - path: { type: PathPrefix, value: /api/ }
+    - path: { type: PathPrefix, value: /c/ }
+    - path: { type: PathPrefix, value: /v2/ }
+    - path: { type: PathPrefix, value: /chartrepo/ }
+    - path: { type: PathPrefix, value: /service/ }
+    backendRefs:
+    - name: harbor-core
+      port: 80
+  - matches:
+    - path: { type: PathPrefix, value: / }
+    backendRefs:
+    - name: harbor-portal
+      port: 80
